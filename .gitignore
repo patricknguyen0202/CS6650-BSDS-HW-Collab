@@ -1,0 +1,49 @@
+# Local variable files
+*.tfvars
+*.tfvars.json
+
+# Local state files (can contain secrets in plain text, e.g. the RDS password)
+*.tfstate
+*.tfstate.*
+
+# Terraform working directory (provider binaries)
+.terraform/
+
+# Crash log files
+crash.log
+
+# Logs
+*.log
+
+# Ignore any editor-specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Go build output
+bin/
+*.exe
+*.test
+*.out
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Script files
+*.sh
+*.bat
+*.ps1
+
+# Python compiled files
+__pycache__/
