@@ -6,7 +6,7 @@ items embedded as a map `{product_id: quantity}`, GSI `customer_id-index` for cu
 billing, gateway VPC endpoint. Details: `DYNAMODB_DESIGN.md`.
 **Under load (Part 6):** Contributor Insights showed ordinary carts at ~4 consumed units each; the only two hot keys (~600 and ~200
 units) were the carts the consistency test hammers on purpose (200 concurrent adds; 50 adds with repeated read-backs). Peak usage stayed
-under 2 units/s (~0% of max throughput), with no throttling recorded.
+under 2 units/s (~0% of max throughput), with no throttling recorded. Error metrics: 0 system errors (read and write), 0 transaction conflicts, and exactly 1 conditional-check failure: the deliberate smoke test "add item to a missing cart" (404 via `attribute_exists(cart_id)`). That count also shows no random `cart_id` collision occurred on create.
 
 ## Implementation (Part 2)
 `src/dynamo.go` implements the three endpoints with one DynamoDB call each (PutItem / GetItem / conditional UpdateItem).
