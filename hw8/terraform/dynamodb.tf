@@ -3,8 +3,10 @@
 # Terraform loads every .tf file in this folder, so `terraform apply` creates the table next to RDS.
 
 # Route table of the private subnets, found from the first private subnet (no change to the network module).
+# depends_on: read it only after the network module has created the route table and its subnet associations.
 data "aws_route_table" "private" {
-  subnet_id = module.network.private_subnet_ids[0]
+  subnet_id  = module.network.private_subnet_ids[0]
+  depends_on = [module.network]
 }
 
 module "dynamodb" {

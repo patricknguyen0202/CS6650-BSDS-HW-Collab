@@ -44,7 +44,7 @@ The API response is identical to MySQL's: `{"shopping_cart_id": 1834201977, "cus
 |---|---|---|---|
 | `POST /shopping-carts` | `PutItem` with `cart_id` = random int32 in [1, 2³¹−1], `customer_id`, `items` = empty map, `created_at`, `expires_at` | `ConditionExpression: attribute_not_exists(cart_id)` → on `ConditionalCheckFailedException`, pick a new ID and retry | 400 bad body, 500 DynamoDB error |
 | `GET /shopping-carts/{id}` | `GetItem` key `cart_id` (eventually consistent by default; `ConsistentRead: true` for the consistency comparison) | none | 400 bad id, **404 if no item**, 500 |
-| `POST /shopping-carts/{id}/items` | `UpdateItem` key `cart_id` | `UpdateExpression: SET items.#p = if_not_exists(items.#p, :zero) + :q, expires_at = :exp` · `ConditionExpression: attribute_exists(cart_id)` · `ExpressionAttributeNames: {"#p": "<product_id>"}` | 400 bad id/body, **404 on ConditionalCheckFailedException**, 500 |
+| `POST /shopping-carts/{id}/items` | `UpdateItem` key `cart_id` | `UpdateExpression: SET #i.#p = if_not_exists(#i.#p, :zero) + :q, expires_at = :exp` · `ConditionExpression: attribute_exists(cart_id)` · `ExpressionAttributeNames: {"#i": "items", "#p": "<product_id>"}` (**`items` is a DynamoDB reserved word**, so it must be a placeholder) | 400 bad id/body, **404 on ConditionalCheckFailedException**, 500 |
 Same validation and error bodies as STEP I (`parseCartID`, `respondError` in `carts.go`).
 **Wiring for Part 2:** pass the table name to the service (e.g. add `DYNAMODB_TABLE = module.dynamodb.table_name` and `AWS_REGION`
 to the ECS environment). Part 1 adds the table without changing any STEP I file.
@@ -82,18 +82,41 @@ two tables for the same guarantee.
 No STEP I (MySQL) file is modified.
 
 ## Validate the table design (before the API exists)
-After `terraform apply -target=module.dynamodb`, from PowerShell (`$T = terraform output -raw dynamodb_table_name`):
+After `terraform apply -target=module.dynamodb`, from PowerShell (`$T = terraform output -raw dynamodb_table_name`; add `--region us-east-1` if your CLI default region differs):
 ```powershell
 aws dynamodb describe-table --table-name $T --query "Table.{Key:KeySchema,GSI:GlobalSecondaryIndexes[].IndexName,Billing:BillingModeSummary.BillingMode}"
 aws dynamodb describe-time-to-live --table-name $T
 aws dynamodb put-item --table-name $T --item '{\"cart_id\":{\"N\":\"101\"},\"customer_id\":{\"N\":\"42\"},\"items\":{\"M\":{}}}' --condition-expression "attribute_not_exists(cart_id)"
-aws dynamodb update-item --table-name $T --key '{\"cart_id\":{\"N\":\"101\"}}' --update-expression "SET items.#p = if_not_exists(items.#p, :z) + :q" --condition-expression "attribute_exists(cart_id)" --expression-attribute-names '{\"#p\":\"7\"}' --expression-attribute-values '{\":z\":{\"N\":\"0\"},\":q\":{\"N\":\"2\"}}'
-aws dynamodb update-item --table-name $T --key '{\"cart_id\":{\"N\":\"101\"}}' --update-expression "SET items.#p = if_not_exists(items.#p, :z) + :q" --condition-expression "attribute_exists(cart_id)" --expression-attribute-names '{\"#p\":\"7\"}' --expression-attribute-values '{\":z\":{\"N\":\"0\"},\":q\":{\"N\":\"3\"}}'
+aws dynamodb update-item --table-name $T --key '{\"cart_id\":{\"N\":\"101\"}}' --update-expression "SET #i.#p = if_not_exists(#i.#p, :z) + :q" --condition-expression "attribute_exists(cart_id)" --expression-attribute-names '{\"#i\":\"items\",\"#p\":\"7\"}' --expression-attribute-values '{\":z\":{\"N\":\"0\"},\":q\":{\"N\":\"2\"}}'
+aws dynamodb update-item --table-name $T --key '{\"cart_id\":{\"N\":\"101\"}}' --update-expression "SET #i.#p = if_not_exists(#i.#p, :z) + :q" --condition-expression "attribute_exists(cart_id)" --expression-attribute-names '{\"#i\":\"items\",\"#p\":\"7\"}' --expression-attribute-values '{\":z\":{\"N\":\"0\"},\":q\":{\"N\":\"3\"}}'
 aws dynamodb get-item --table-name $T --key '{\"cart_id\":{\"N\":\"101\"}}'
 aws dynamodb query --table-name $T --index-name customer_id-index --key-condition-expression "customer_id = :c" --expression-attribute-values '{\":c\":{\"N\":\"42\"}}'
-aws dynamodb update-item --table-name $T --key '{\"cart_id\":{\"N\":\"999\"}}' --update-expression "SET items.#p = :q" --condition-expression "attribute_exists(cart_id)" --expression-attribute-names '{\"#p\":\"7\"}' --expression-attribute-values '{\":q\":{\"N\":\"1\"}}'
+aws dynamodb update-item --table-name $T --key '{\"cart_id\":{\"N\":\"999\"}}' --update-expression "SET #i.#p = :q" --condition-expression "attribute_exists(cart_id)" --expression-attribute-names '{\"#i\":\"items\",\"#p\":\"7\"}' --expression-attribute-values '{\":q\":{\"N\":\"1\"}}'
 aws dynamodb delete-item --table-name $T --key '{\"cart_id\":{\"N\":\"101\"}}'
 ```
 Expected: key `cart_id` HASH, GSI `customer_id-index`, `PAY_PER_REQUEST`, TTL `ENABLED` on `expires_at`; after two adds, product `7` has
 quantity **5** (2 + 3, atomic increment); the GSI query returns cart 101; the update on missing cart 999 fails with
 **ConditionalCheckFailedException** (the API maps it to 404).
+
+## Validation results (Sushant, us-east-1, table created with `terraform apply -target=module.dynamodb`)
+| Check | Result |
+|---|---|
+| Key schema / billing / GSI | `cart_id` HASH · `PAY_PER_REQUEST` · `customer_id-index` |
+| TTL | `ENABLED` on `expires_at` |
+| VPC gateway endpoint | Private route table has `pl-02cd2c6b → vpce-…` next to `0.0.0.0/0 → nat-…`: DynamoDB traffic bypasses the NAT |
+| Create cart 101 | Succeeded |
+| Create cart 101 **again** (duplicate ID) | **`ConditionalCheckFailedException`**: the API retries with a new random ID |
+| Add product 7 ×2, then ×3 | `get-item` → `"items": {"7": 5}`: **atomic increment** (2 + 3), one write per add |
+| Customer history (GSI query, customer 42) | Returned cart 101 |
+| Add item to missing cart 999 | **`ConditionalCheckFailedException`**: the API maps it to **404**, nothing is written |
+Screenshots: `screenshots/p1-table-design.png`, `screenshots/p1-validate-operations.png`.
+
+## What failed initially (and the fix)
+1. **`items` is a DynamoDB reserved word.** `SET items.#p = ...` failed with *"Attribute name is a reserved keyword"*. Fix: an expression
+   attribute name placeholder, `#i` → `items`. DynamoDB reserves hundreds of words (`items`, `name`, `status`, `count`, ...), so every
+   attribute in an expression should use a placeholder.
+2. **Route-table lookup ran too early.** The data source found the private route table through its subnet association, but Terraform read
+   it before the network module had created the association ("query returned no results"). Fix: `depends_on = [module.network]` on the
+   data source.
+3. **Windows Smart App Control blocked the Terraform Docker provider** ("An Application Control policy has blocked this file"). Fix: run
+   Terraform in Docker (`hashicorp/terraform:1.9`, Linux binary) with the AWS credentials and the Docker socket mounted.
