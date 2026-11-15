@@ -66,3 +66,19 @@ variable "db_password" {
     error_message = "db_password must be 8 to 41 characters long (RDS MySQL limit)."
   }
 }
+
+variable "cart_store" {
+  description = "Which database backs the cart API: mysql (STEP I) or dynamodb (STEP II)"
+  type        = string
+  default     = "mysql"
+  validation {
+    condition     = contains(["mysql", "dynamodb"], var.cart_store)
+    error_message = "cart_store must be mysql or dynamodb."
+  }
+}
+
+variable "dynamodb_consistent_read" {
+  description = "true = strongly consistent GetItem (consistency comparison); false = eventually consistent"
+  type        = bool
+  default     = false
+}

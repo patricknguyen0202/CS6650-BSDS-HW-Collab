@@ -7,11 +7,6 @@ import (
 )
 
 func main() {
-	// Connect to MySQL and create the tables on first start.
-	// Both stop the process on failure, and ECS restarts the task.
-	db = openDB()
-	createSchema()
-
 	// Release mode drops Gin's debug route printout at startup
 	gin.SetMode(gin.ReleaseMode)
 
@@ -22,10 +17,24 @@ func main() {
 	// Associate the healthHandler function with the /health endpoint path.
 	router.GET("/health", healthHandler)
 
-	// Shopping cart endpoints from api.yaml (plus GET, which HW8 adds)
-	router.POST("/shopping-carts", createCart)
-	router.GET("/shopping-carts/:id", getCart)
-	router.POST("/shopping-carts/:id/items", addItem)
+	// CART_STORE picks the database behind the same API: "dynamodb" (STEP II), anything else = MySQL (STEP I).
+	if useDynamo() {
+		// DynamoDB: no connection pool and no schema step; Terraform creates the table.
+		openDynamo()
+		router.POST("/shopping-carts", dynamoCreateCart)
+		router.GET("/shopping-carts/:id", dynamoGetCart)
+		router.POST("/shopping-carts/:id/items", dynamoAddItem)
+	} else {
+		// Connect to MySQL and create the tables on first start.
+		// Both stop the process on failure, and ECS restarts the task.
+		db = openDB()
+		createSchema()
+
+		// Shopping cart endpoints from api.yaml (plus GET, which HW8 adds)
+		router.POST("/shopping-carts", createCart)
+		router.GET("/shopping-carts/:id", getCart)
+		router.POST("/shopping-carts/:id/items", addItem)
+	}
 
 	// Listen on port 8080 on all interfaces, so the container is reachable
 	router.Run(":8080")

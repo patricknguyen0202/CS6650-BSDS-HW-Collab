@@ -1,0 +1,18 @@
+{
+  "label": "eventual",
+  "create_then_get": {
+    "runs": 50,
+    "stale_first_reads": 0,
+    "never_consistent": 0,
+    "max_ms_to_consistent": 165.2
+  },
+  "add_then_get": {
+    "runs": 50,
+    "stale_first_reads": 0
+  },
+  "concurrent_updates": {
+    "expected_quantity": 200,
+    "final_quantity": 200,
+    "lost_updates": 0
+  }
+}

@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o hw8-shopping-cart .
 
 # ---------- Stage 2: run ----------
 # Minimal runtime image: no shell, no package manager, no Go toolchain.
-FROM gcr.io/distroless/static-debian12
+FROM --platform=linux/amd64 gcr.io/distroless/static-debian12
 
 # Copy only the compiled binary from the build stage
 COPY --from=build /app/hw8-shopping-cart /hw8-shopping-cart

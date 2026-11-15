@@ -67,6 +67,10 @@ module "ecs" {
     { name = "DB_USER", value = var.db_username },
     { name = "DB_PASSWORD", value = var.db_password },
     { name = "DB_NAME", value = var.db_name },
+    { name = "CART_STORE", value = var.cart_store },
+    { name = "DYNAMODB_TABLE", value = module.dynamodb.table_name },
+    { name = "DYNAMODB_CONSISTENT_READ", value = tostring(var.dynamodb_consistent_read) },
+    { name = "AWS_REGION", value = var.aws_region },
   ]
 
   # Wait for the image push, the ALB listener, the NAT route (the task pulls the image through it)
